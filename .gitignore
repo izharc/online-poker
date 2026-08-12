@@ -1,9 +1,9 @@
 node_modules/
-.next/
-dist/
-coverage/
 .env
 .env.local
-.env.*.local
-!.env.example
-*.tsbuildinfo
+.env.production
+.next/
+dist/
+build/
+coverage/
+*.log
