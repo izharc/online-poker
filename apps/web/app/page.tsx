@@ -1,14 +1,101 @@
-const features = ["Server-authoritative gameplay", "Real-time multiplayer tables", "Play money — no deposits or wagering"];
+import Link from "next/link";
+
+const features = [
+  {
+    number: "01",
+    title: "Play with friends",
+    text: "Create a table and invite friends to join your game.",
+  },
+  {
+    number: "02",
+    title: "Texas Hold'em",
+    text: "Classic Texas Hold'em gameplay with chips only.",
+  },
+  {
+    number: "03",
+    title: "Build your stack",
+    text: "Start with chips, make your moves and enjoy the game.",
+  },
+];
 
 export default function Home() {
-  return <main>
-    <nav><strong>STACKLINE</strong><div><a href="#features">How it works</a><a href="/login">Log in</a></div></nav>
-    <section className="hero">
-      <p className="eyebrow">PLAY-MONEY TEXAS HOLD'EM</p>
-      <h1>Read the table.<br /><em>Build your stack.</em></h1>
-      <p className="lede">A polished, fair place to play Texas Hold&apos;em with friends and competitors — using chips only.</p>
-      <div className="actions"><a className="primary" href="/register">Play now</a><a className="secondary" href="#features">Explore tables</a></div>
-    </section>
-    <section id="features" className="features">{features.map((feature, index) => <article key={feature}><span>0{index + 1}</span><h2>{feature}</h2><p>Built for secure, transparent play across desktop and mobile.</p></article>)}</section>
-  </main>;
+  return (
+    <main>
+      <nav className="nav">
+        <div className="brand">STACKLINE</div>
+
+        <div className="nav-links">
+          <a href="#features">How it works</a>
+          <a href="#account">Account</a>
+        </div>
+      </nav>
+
+      <section className="hero">
+        <div className="hero-content">
+          <p className="eyebrow">PLAY-MONEY TEXAS HOLD'EM</p>
+
+          <h1>
+            Read the table.
+            <br />
+            <span>Build your stack.</span>
+          </h1>
+
+          <p className="subtitle">
+            A polished, fair place to play Texas Hold&apos;em with friends
+            and competitors — using chips only.
+          </p>
+
+          <div className="actions">
+            <Link className="primary" href="/table">
+              Play now
+            </Link>
+
+            <a className="secondary" href="#features">
+              Explore tables
+            </a>
+          </div>
+
+          <div className="account-card" id="account">
+            <p className="card-label">PLAYER ACCOUNT</p>
+
+            <h2>Welcome back</h2>
+
+            <p className="card-text">
+              Sign in to access the poker table.
+            </p>
+
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+            />
+
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              placeholder="Password"
+            />
+
+            <Link className="login-button" href="/table">
+              Enter table
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="features" id="features">
+        {features.map((feature) => (
+          <article className="feature" key={feature.number}>
+            <span>{feature.number}</span>
+
+            <h2>{feature.title}</h2>
+
+            <p>{feature.text}</p>
+          </article>
+        ))}
+      </section>
+    </main>
+  );
 }

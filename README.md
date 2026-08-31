@@ -8,7 +8,7 @@ Phase 1 is initialized: TypeScript workspace, Next.js web shell, Socket.IO serve
 
 ## Local development
 
-1. Copy `.env.example` to `.env.local` and provide Supabase values when Phase 2 is configured.
+1. Copy `.env.example` to `.env.local`, set `SESSION_SECRET`, and configure SMTP to deliver verification messages. The server reads this file when started from the repository root.
 2. `npm install`
 3. `npm run dev:web` and, in another terminal, `npm run dev:server`
 
@@ -16,4 +16,4 @@ Checks: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
 
 ## Deployment topology
 
-Deploy `apps/web` to Vercel and `apps/server` to a persistent Node host such as Railway, Render or Fly.io. Supabase provides PostgreSQL and authentication. Do not deploy the Socket.IO process as a standard Vercel serverless function.
+Deploy `apps/web` to Vercel and `apps/server` to a persistent Node host such as Railway, Render or Fly.io. Authentication is owned by the server; do not deploy the Socket.IO process as a standard Vercel serverless function.
