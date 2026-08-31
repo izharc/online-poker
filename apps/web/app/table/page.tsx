@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 
 type Suit = "♠" | "♥" | "♦" | "♣";
-type Stage = "preflop" | "flop" | "turn" | "river" | "showdown";
 
 type Card = {
   rank: string;
@@ -13,13 +11,13 @@ type Card = {
 };
 
 type Player = {
-  id: string;
   name: string;
   chips: number;
-  hand: Card[];
+  holeCards: Card[];
   folded: boolean;
-  bet: number;
 };
+
+type Stage = "PREFLOP" | "FLOP" | "TURN" | "RIVER" | "SHOWDOWN";
 
 const STARTING_CHIPS = 1000;
 const SMALL_BLIND = 10;
@@ -60,502 +58,430 @@ function createDeck(): Card[] {
 }
 
 function shuffle<T>(array: T[]): T[] {
-  const result = [...array];
+  const copy = [...array];
 
-  for (let i = result.length - 1; i > 0; i--) {
+  for (let i = copy.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-
-    [result[i], result[j]] = [result[j], result[i]];
+    [copy[i], copy[j]] = [copy[j], copy[i]];
   }
 
-  return result;
+  return copy;
 }
 
-function makePlayers(): Player[] {
-  return [
-    {
-      id: "you",
-      name: "You",
-      chips: STARTING_CHIPS,
-      hand: [],
-      folded: false,
-      bet: 0,
-    },
-    {
-      id: "mike",
-      name: "Mike",
-      chips: STARTING_CHIPS,
-      hand: [],
-      folded: false,
-      bet: 0,
-    },
-    {
-      id: "john",
-      name: "John",
-      chips: STARTING_CHIPS,
-      hand: [],
-      folded: false,
-      bet: 0,
-    },
-  ];
+function CardView({
+  card,
+  small = false,
+}: {
+  card: Card;
+  small?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        width: small ? "48px" : "62px",
+        height: small ? "68px" : "88px",
+        background: "#fff",
+        borderRadius: "7px",
+        color: card.red ? "#c62828" : "#111",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: small ? "20px" : "25px",
+        fontWeight: "bold",
+        boxShadow: "0 5px 12px rgba(0,0,0,.35)",
+        flexShrink: 0,
+      }}
+    >
+      <div>{card.rank}</div>
+      <div>{card.suit}</div>
+    </div>
+  );
+}
+
+function CardBack({ small = false }: { small?: boolean }) {
+  return (
+    <div
+      style={{
+        width: small ? "48px" : "62px",
+        height: small ? "68px" : "88px",
+        borderRadius: "7px",
+        background:
+          "repeating-linear-gradient(45deg,#172e63,#172e63 5px,#203b78 5px,#203b78 10px)",
+        border: "2px solid #ddd",
+        boxSizing: "border-box",
+        boxShadow: "0 5px 12px rgba(0,0,0,.35)",
+      }}
+    />
+  );
+}
+
+function PlayerBox({
+  player,
+  active,
+  position,
+}: {
+  player: Player;
+  active: boolean;
+  position: React.CSSProperties;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        ...position,
+        minWidth: "130px",
+        padding: "10px 14px",
+        borderRadius: "12px",
+        background: active ? "#173d33" : "#102d26",
+        border: active ? "2px solid #e9b949" : "1px solid #31534a",
+        textAlign: "center",
+        boxShadow: "0 6px 15px rgba(0,0,0,.25)",
+        zIndex: 5,
+      }}
+    >
+      <div
+        style={{
+          fontWeight: "bold",
+          fontSize: "16px",
+        }}
+      >
+        {player.name}
+      </div>
+
+      <div
+        style={{
+          marginTop: "4px",
+          color: "#e9b949",
+          fontSize: "14px",
+        }}
+      >
+        {player.chips} chips
+      </div>
+
+      {player.name !== "You" && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            gap: "5px",
+            marginTop: "8px",
+          }}
+        >
+          {player.holeCards.length === 2 && (
+            <>
+              <CardBack small />
+              <CardBack small />
+            </>
+          )}
+        </div>
+      )}
+
+      {player.folded && (
+        <div
+          style={{
+            marginTop: "5px",
+            color: "#d66",
+            fontSize: "12px",
+            fontWeight: "bold",
+          }}
+        >
+          FOLDED
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PokerTable() {
-  const [players, setPlayers] = useState<Player[]>(makePlayers);
+  const [players, setPlayers] = useState<Player[]>([]);
   const [deck, setDeck] = useState<Card[]>([]);
   const [communityCards, setCommunityCards] = useState<Card[]>([]);
-  const [pot, setPot] = useState(0);
+  const [stage, setStage] = useState<Stage>("PREFLOP");
+  const [currentPlayer, setCurrentPlayer] = useState(0);
 
-  const [currentPlayer, setCurrentPlayer] = useState("you");
-  const [stage, setStage] = useState<Stage>("preflop");
-
+  const [pot, setPot] = useState(30);
   const [message, setMessage] = useState("Your turn");
   const [handNumber, setHandNumber] = useState(1);
 
-  const [dealerIndex, setDealerIndex] = useState(0);
-  const [showdownWinner, setShowdownWinner] = useState<string | null>(null);
-
-  const you = players.find((p) => p.id === "you");
+  const [userMoney, setUserMoney] = useState(1000);
+  const [bet, setBet] = useState(20);
+  const [roundActions, setRoundActions] = useState(0);
 
   const activePlayers = useMemo(
     () => players.filter((p) => !p.folded),
     [players]
   );
 
-  const isYourTurn = currentPlayer === "you" && stage !== "showdown";
+  function startNewHand(customMoney?: number) {
+    const money = customMoney ?? userMoney;
 
-  /*
-   * START A NEW HAND
-   */
-  const startNewHand = () => {
-    const newDeck = shuffle(createDeck());
+    let newDeck = shuffle(createDeck());
 
-    const newPlayers = makePlayers();
+    const newPlayers: Player[] = [
+      {
+        name: "Mike",
+        chips: 1000,
+        holeCards: [],
+        folded: false,
+      },
+      {
+        name: "John",
+        chips: 1000,
+        holeCards: [],
+        folded: false,
+      },
+      {
+        name: "You",
+        chips: money,
+        holeCards: [],
+        folded: false,
+      },
+    ];
 
-    // Deal 2 cards to every player
+    // בדיוק 2 קלפים לכל שחקן
     for (let i = 0; i < 2; i++) {
       for (let p = 0; p < newPlayers.length; p++) {
-        newPlayers[p].hand.push(newDeck.pop()!);
+        newPlayers[p].holeCards.push(newDeck.pop()!);
       }
     }
 
-    // Blinds
-    const smallBlindPlayer =
-      newPlayers[(dealerIndex + 1) % newPlayers.length];
-
-    const bigBlindPlayer =
-      newPlayers[(dealerIndex + 2) % newPlayers.length];
-
-    smallBlindPlayer.chips -= SMALL_BLIND;
-    smallBlindPlayer.bet = SMALL_BLIND;
-
-    bigBlindPlayer.chips -= BIG_BLIND;
-    bigBlindPlayer.bet = BIG_BLIND;
+    // בליינדים
+    newPlayers[0].chips -= SMALL_BLIND;
+    newPlayers[1].chips -= BIG_BLIND;
 
     setPlayers(newPlayers);
     setDeck(newDeck);
     setCommunityCards([]);
-    setPot(SMALL_BLIND + BIG_BLIND);
-    setStage("preflop");
-
-    // First player after big blind
-    setCurrentPlayer("you");
+    setStage("PREFLOP");
+    setCurrentPlayer(2);
+    setPot(30);
+    setBet(BIG_BLIND);
+    setRoundActions(0);
     setMessage("Your turn");
-    setShowdownWinner(null);
-  };
+  }
 
-  /*
-   * FIRST HAND
-   */
   useEffect(() => {
     startNewHand();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /*
-   * FIND NEXT ACTIVE PLAYER
-   */
-  const getNextPlayer = (currentId: string, list: Player[]) => {
-    const currentIndex = list.findIndex((p) => p.id === currentId);
+  function finishHand(text: string) {
+    setStage("SHOWDOWN");
+    setMessage(text);
+    setCurrentPlayer(-1);
+  }
 
-    for (let i = 1; i <= list.length; i++) {
-      const index = (currentIndex + i) % list.length;
+  function dealNextStage() {
+    let workingDeck = [...deck];
 
-      if (!list[index].folded) {
-        return list[index].id;
-      }
-    }
+    // Burn card
+    workingDeck.pop();
 
-    return null;
-  };
+    if (stage === "PREFLOP") {
+      // FLOP = 3 קלפים
+      const flop = [
+        workingDeck.pop()!,
+        workingDeck.pop()!,
+        workingDeck.pop()!,
+      ];
 
-  /*
-   * DEAL NEXT STREET
-   */
-  const dealNextStreet = (currentDeck: Card[], currentPlayers: Player[]) => {
-    const nextDeck = [...currentDeck];
-    const nextCommunity = [...communityCards];
-
-    if (stage === "preflop") {
-      nextCommunity.push(
-        nextDeck.pop()!,
-        nextDeck.pop()!,
-        nextDeck.pop()!
-      );
-
-      setStage("flop");
-      setMessage("Flop dealt");
-    } else if (stage === "flop") {
-      nextCommunity.push(nextDeck.pop()!);
-
-      setStage("turn");
-      setMessage("Turn dealt");
-    } else if (stage === "turn") {
-      nextCommunity.push(nextDeck.pop()!);
-
-      setStage("river");
-      setMessage("River dealt");
-    }
-
-    setCommunityCards(nextCommunity);
-    setDeck(nextDeck);
-
-    const resetPlayers = currentPlayers.map((player) => ({
-      ...player,
-      bet: 0,
-    }));
-
-    setPlayers(resetPlayers);
-
-    setTimeout(() => {
-      const first = resetPlayers.find((p) => !p.folded);
-
-      if (first) {
-        setCurrentPlayer(first.id);
-      }
-    }, 400);
-  };
-
-  /*
-   * SHOWDOWN
-   */
-  const showdown = (currentPlayers: Player[]) => {
-    const available = currentPlayers.filter((p) => !p.folded);
-
-    if (available.length === 1) {
-      const winner = available[0];
-
-      setShowdownWinner(winner.name);
-      setMessage(`${winner.name} wins ${pot} chips!`);
-      setStage("showdown");
-
-      setPlayers((old) =>
-        old.map((p) =>
-          p.id === winner.id
-            ? { ...p, chips: p.chips + pot }
-            : p
-        )
-      );
-
+      setCommunityCards(flop);
+      setStage("FLOP");
+      setRoundActions(0);
+      setCurrentPlayer(2);
+      setMessage("Your turn");
+      setDeck(workingDeck);
       return;
     }
 
-    // Simple winner selection for now.
-    // Later we can replace this with a real poker hand evaluator.
-    const winner =
-      available[Math.floor(Math.random() * available.length)];
+    if (stage === "FLOP") {
+      // TURN = קלף אחד
+      const turn = workingDeck.pop()!;
 
-    setShowdownWinner(winner.name);
-    setMessage(`${winner.name} wins ${pot} chips!`);
-    setStage("showdown");
-
-    setPlayers((old) =>
-      old.map((p) =>
-        p.id === winner.id
-          ? { ...p, chips: p.chips + pot }
-          : p
-      )
-    );
-  };
-
-  /*
-   * AFTER A PLAYER ACTION
-   */
-  const finishAction = (
-    playerId: string,
-    actionName: string,
-    amount: number
-  ) => {
-    let updatedPlayers: Player[] = [];
-
-    setPlayers((oldPlayers) => {
-      updatedPlayers = oldPlayers.map((player) => {
-        if (player.id !== playerId) {
-          return player;
-        }
-
-        const payment = Math.min(amount, player.chips);
-
-        return {
-          ...player,
-          chips: player.chips - payment,
-          bet: player.bet + payment,
-        };
-      });
-
-      return updatedPlayers;
-    });
-
-    setPot((oldPot) => oldPot + amount);
-
-    setMessage(
-      playerId === "you"
-        ? `You ${actionName}`
-        : `${players.find((p) => p.id === playerId)?.name} ${actionName}`
-    );
-
-    // If only one player remains
-    const afterFold = updatedPlayers.filter((p) => !p.folded);
-
-    if (afterFold.length === 1) {
-      showdown(updatedPlayers);
+      setCommunityCards((cards) => [...cards, turn]);
+      setStage("TURN");
+      setRoundActions(0);
+      setCurrentPlayer(2);
+      setMessage("Your turn");
+      setDeck(workingDeck);
       return;
     }
 
-    const next = getNextPlayer(playerId, updatedPlayers);
+    if (stage === "TURN") {
+      // RIVER = קלף אחד
+      const river = workingDeck.pop()!;
 
-    if (!next) {
+      setCommunityCards((cards) => [...cards, river]);
+      setStage("RIVER");
+      setRoundActions(0);
+      setCurrentPlayer(2);
+      setMessage("Your turn");
+      setDeck(workingDeck);
       return;
+    }
+
+    if (stage === "RIVER") {
+      finishHand("Showdown!");
+    }
+  }
+
+  function nextPlayer() {
+    let next = (currentPlayer + 1) % players.length;
+
+    let safety = 0;
+
+    while (players[next]?.folded && safety < 10) {
+      next = (next + 1) % players.length;
+      safety++;
     }
 
     setCurrentPlayer(next);
-  };
+  }
 
-  /*
-   * FOLD
-   */
-  const fold = () => {
-    if (!isYourTurn) return;
-
-    setPlayers((old) => {
-      const updated = old.map((p) =>
-        p.id === "you"
-          ? { ...p, folded: true }
-          : p
-      );
-
-      return updated;
-    });
-
-    setMessage("You folded");
-
-    const remaining = players.filter((p) => p.id !== "you" && !p.folded);
-
-    if (remaining.length === 1) {
-      const winner = remaining[0];
-
-      setPot((oldPot) => {
-        setPlayers((oldPlayers) =>
-          oldPlayers.map((p) =>
-            p.id === winner.id
-              ? { ...p, chips: p.chips + oldPot }
-              : p
-          )
-        );
-
-        return oldPot;
-      });
-
-      setShowdownWinner(winner.name);
-      setStage("showdown");
-      setMessage(`${winner.name} wins the hand`);
+  function playerAction(action: "Fold" | "Check" | "Call" | "Raise") {
+    if (currentPlayer !== 2 || stage === "SHOWDOWN") {
       return;
     }
 
-    const next = remaining[0];
-
-    setCurrentPlayer(next.id);
-  };
-
-  /*
-   * CHECK
-   */
-  const check = () => {
-    if (!isYourTurn) return;
-
-    finishAction("you", "checked", 0);
-  };
-
-  /*
-   * CALL
-   */
-  const call = () => {
-    if (!isYourTurn) return;
-
-    const amount = 20;
-
-    if ((you?.chips ?? 0) < amount) {
-      finishAction("you", "called all-in", you?.chips ?? 0);
-      return;
-    }
-
-    finishAction("you", "called", amount);
-  };
-
-  /*
-   * RAISE
-   */
-  const raise = () => {
-    if (!isYourTurn) return;
-
-    const amount = 50;
-
-    if ((you?.chips ?? 0) < amount) {
-      finishAction("you", "raised all-in", you?.chips ?? 0);
-      return;
-    }
-
-    finishAction("you", "raised", amount);
-  };
-
-  /*
-   * AI TURN
-   */
-  useEffect(() => {
-    if (stage === "showdown") return;
-    if (currentPlayer === "you") return;
-
-    const timer = setTimeout(() => {
-      const ai = players.find((p) => p.id === currentPlayer);
-
-      if (!ai || ai.folded) return;
-
-      const random = Math.random();
-
-      if (random < 0.12) {
-        // AI folds
-        setPlayers((old) =>
-          old.map((p) =>
-            p.id === ai.id
-              ? { ...p, folded: true }
-              : p
-          )
-        );
-
-        setMessage(`${ai.name} folded`);
-
-        const remaining = players.filter(
-          (p) => p.id !== ai.id && !p.folded
-        );
-
-        if (remaining.length === 1) {
-          const winner = remaining[0];
-
-          setPlayers((old) =>
-            old.map((p) =>
-              p.id === winner.id
-                ? { ...p, chips: p.chips + pot }
-                : p
-            )
-          );
-
-          setShowdownWinner(winner.name);
-          setStage("showdown");
-          setMessage(`${winner.name} wins ${pot} chips!`);
-          return;
-        }
-
-        const next = getNextPlayer(ai.id, players);
-
-        if (next) {
-          setCurrentPlayer(next);
-        }
-
-        return;
-      }
-
-      const amount = random < 0.65 ? 20 : 50;
-      const actionName = amount === 20 ? "called" : "raised";
-
+    if (action === "Fold") {
       setPlayers((old) =>
-        old.map((p) =>
-          p.id === ai.id
+        old.map((p, i) =>
+          i === 2
             ? {
                 ...p,
-                chips: Math.max(0, p.chips - amount),
-                bet: p.bet + amount,
+                folded: true,
               }
             : p
         )
       );
 
-      setPot((old) => old + amount);
-      setMessage(`${ai.name} ${actionName}`);
+      finishHand("You folded");
+      return;
+    }
 
-      const next = getNextPlayer(ai.id, players);
+    let amount = 0;
 
-      if (next) {
-        setCurrentPlayer(next);
+    if (action === "Call") {
+      amount = 20;
+      setMessage("You called");
+    }
+
+    if (action === "Raise") {
+      amount = 50;
+      setMessage("You raised");
+    }
+
+    if (action === "Check") {
+      amount = 0;
+      setMessage("You checked");
+    }
+
+    if (amount > 0) {
+      setUserMoney((value) => Math.max(0, value - amount));
+
+      setPlayers((old) =>
+        old.map((p, i) =>
+          i === 2
+            ? {
+                ...p,
+                chips: Math.max(0, p.chips - amount),
+              }
+            : p
+        )
+      );
+
+      setPot((value) => value + amount);
+    }
+
+    const newActions = roundActions + 1;
+    setRoundActions(newActions);
+
+    // אחרי 3 פעולות - עוברים לשלב הבא
+    if (newActions >= activePlayers.length) {
+      setTimeout(() => {
+        dealNextStage();
+      }, 600);
+
+      return;
+    }
+
+    setTimeout(() => {
+      nextPlayer();
+    }, 500);
+  }
+
+  // פעולה אוטומטית של שחקני המחשב
+  useEffect(() => {
+    if (currentPlayer === -1) return;
+    if (currentPlayer === 2) return;
+    if (stage === "SHOWDOWN") return;
+
+    const timer = setTimeout(() => {
+      const computerAction =
+        Math.random() < 0.75 ? "Check" : "Call";
+
+      if (computerAction === "Call") {
+        setPot((value) => value + 20);
+      }
+
+      setMessage(
+        computerAction === "Call"
+          ? `${players[currentPlayer]?.name} called`
+          : `${players[currentPlayer]?.name} checked`
+      );
+
+      const newActions = roundActions + 1;
+      setRoundActions(newActions);
+
+      if (newActions >= activePlayers.length) {
+        setTimeout(() => {
+          dealNextStage();
+        }, 500);
+      } else {
+        nextPlayer();
       }
     }, 900);
 
     return () => clearTimeout(timer);
-  }, [currentPlayer, stage]);
+  }, [
+    currentPlayer,
+    stage,
+    roundActions,
+    activePlayers.length,
+    players,
+  ]);
 
-  /*
-   * MOVE TO NEXT STREET WHEN EVERYONE HAS ACTED
-   *
-   * For this simple version, after the action returns to
-   * the first player we advance the board.
-   */
-  useEffect(() => {
-    if (stage === "showdown") return;
-    if (currentPlayer !== "you") return;
+  function resetMoney() {
+    setUserMoney(1000);
 
-    const active = players.filter((p) => !p.folded);
+    startNewHand(1000);
 
-    // If everybody has a bet/action, move forward.
-    const allActed = active.every((p) => p.bet > 0);
+    setHandNumber((value) => value + 1);
+    setMessage("Money reset — new hand");
+  }
 
-    if (!allActed) return;
+  function newHand() {
+    startNewHand(userMoney);
+    setHandNumber((value) => value + 1);
+  }
 
-    const timer = setTimeout(() => {
-      if (stage === "river") {
-        showdown(players);
-      } else {
-        dealNextStreet(deck, players);
-      }
-    }, 700);
-
-    return () => clearTimeout(timer);
-  }, [currentPlayer, stage, players]);
-
-  /*
-   * NEW HAND
-   */
-  const newHand = () => {
-    setDealerIndex((old) => (old + 1) % 3);
-
-    // Small delay makes the new hand visually clear
-    setTimeout(() => {
-      startNewHand();
-    }, 100);
-  };
+  const you = players[2];
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        background: "#061d18",
+        background: "#071f1a",
         color: "#f5f0df",
         fontFamily: "Arial, sans-serif",
-        padding: "28px",
+        padding: "25px",
         boxSizing: "border-box",
       }}
     >
       <header
         style={{
-          maxWidth: "1000px",
+          maxWidth: "1200px",
           margin: "0 auto 20px",
           display: "flex",
           justifyContent: "space-between",
@@ -566,7 +492,7 @@ export default function PokerTable() {
           <div
             style={{
               fontSize: "13px",
-              letterSpacing: "4px",
+              letterSpacing: "3px",
               color: "#e9b949",
               fontWeight: "bold",
             }}
@@ -576,7 +502,7 @@ export default function PokerTable() {
 
           <h1
             style={{
-              margin: "5px 0 2px",
+              margin: "5px 0",
               fontSize: "28px",
             }}
           >
@@ -585,40 +511,64 @@ export default function PokerTable() {
 
           <div
             style={{
-              color: "#91aaa3",
-              fontSize: "14px",
+              color: "#9bb5ad",
+              fontSize: "13px",
             }}
           >
-            Hand #{handNumber} • {stage.toUpperCase()}
+            Hand #{handNumber} • {stage}
           </div>
         </div>
 
-        <div
-          style={{
-            background: "#102d26",
-            border: "1px solid #31534a",
-            padding: "11px 18px",
-            borderRadius: "8px",
-          }}
-        >
-          Chips: <strong>{you?.chips ?? 0}</strong>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            onClick={newHand}
+            style={{
+              ...topButtonStyle,
+              background: "#31534a",
+              color: "#fff",
+            }}
+          >
+            New Hand
+          </button>
+
+          <button
+            onClick={resetMoney}
+            style={{
+              ...topButtonStyle,
+              background: "#e9b949",
+              color: "#111",
+            }}
+          >
+            Reset Money
+          </button>
+
+          <div
+            style={{
+              background: "#102d26",
+              border: "1px solid #31534a",
+              padding: "12px 18px",
+              borderRadius: "8px",
+            }}
+          >
+            Chips: <strong>{userMoney}</strong>
+          </div>
         </div>
       </header>
 
       <section
         style={{
-          maxWidth: "1000px",
+          maxWidth: "1200px",
           margin: "0 auto",
         }}
       >
         <div
           style={{
             position: "relative",
-            minHeight: "620px",
-            borderRadius: "44%",
+            minHeight: "650px",
+            borderRadius: "45%",
             background:
               "radial-gradient(circle, #17624d 0%, #0d493b 55%, #08372e 100%)",
-            border: "16px solid #4b3020",
+            border: "18px solid #4b3020",
             boxShadow:
               "0 20px 60px rgba(0,0,0,.45), inset 0 0 50px rgba(0,0,0,.3)",
             overflow: "hidden",
@@ -628,11 +578,10 @@ export default function PokerTable() {
           <div
             style={{
               position: "absolute",
-              top: "28px",
+              top: "25px",
               left: "50%",
               transform: "translateX(-50%)",
               textAlign: "center",
-              zIndex: 3,
             }}
           >
             <div
@@ -660,108 +609,104 @@ export default function PokerTable() {
           <div
             style={{
               position: "absolute",
-              top: "88px",
+              top: "100px",
               left: "50%",
               transform: "translateX(-50%)",
               display: "flex",
-              gap: "9px",
-              zIndex: 2,
+              gap: "10px",
             }}
           >
             {communityCards.map((card, index) => (
-              <PlayingCard card={card} key={index} />
+              <CardView card={card} key={index} />
             ))}
           </div>
 
           {/* PLAYERS */}
-          <PlayerBox
-            player={players.find((p) => p.id === "mike")!}
-            position={{
-              left: "65px",
-              top: "205px",
-            }}
-            active={currentPlayer === "mike"}
-          />
 
-          <PlayerBox
-            player={players.find((p) => p.id === "john")!}
-            position={{
-              right: "65px",
-              top: "205px",
-            }}
-            active={currentPlayer === "john"}
-          />
+          {players[0] && (
+            <PlayerBox
+              player={players[0]}
+              active={currentPlayer === 0}
+              position={{
+                top: "185px",
+                left: "55px",
+              }}
+            />
+          )}
+
+          {players[1] && (
+            <PlayerBox
+              player={players[1]}
+              active={currentPlayer === 1}
+              position={{
+                top: "185px",
+                right: "55px",
+              }}
+            />
+          )}
 
           {/* YOU */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: "45px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              minWidth: "145px",
-              padding: "12px",
-              borderRadius: "12px",
-              background: "#173d33",
-              border:
-                currentPlayer === "you"
-                  ? "2px solid #e9b949"
-                  : "1px solid #31534a",
-              textAlign: "center",
-              boxShadow:
-                currentPlayer === "you"
-                  ? "0 0 25px rgba(233,185,73,.25)"
-                  : "0 6px 15px rgba(0,0,0,.25)",
-            }}
-          >
+          {you && (
             <div
               style={{
-                fontWeight: "bold",
-                fontSize: "17px",
+                position: "absolute",
+                bottom: "30px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                minWidth: "160px",
+                padding: "12px",
+                borderRadius: "12px",
+                background: "#173d33",
+                border: "2px solid #e9b949",
+                textAlign: "center",
+                zIndex: 10,
               }}
             >
-              You
-            </div>
-
-            <div
-              style={{
-                marginTop: "4px",
-                color: "#e9b949",
-              }}
-            >
-              {you?.chips ?? 0} chips
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                gap: "7px",
-                marginTop: "9px",
-              }}
-            >
-              {you?.hand.map((card, index) => (
-                <PlayingCard
-                  card={card}
-                  key={index}
-                  small
-                />
-              ))}
-            </div>
-
-            {currentPlayer === "you" && stage !== "showdown" && (
               <div
                 style={{
-                  marginTop: "6px",
-                  color: "#e9b949",
-                  fontSize: "12px",
                   fontWeight: "bold",
+                  fontSize: "17px",
                 }}
               >
-                YOUR TURN
+                You
               </div>
-            )}
-          </div>
+
+              <div
+                style={{
+                  marginTop: "4px",
+                  color: "#e9b949",
+                }}
+              >
+                {you.chips} chips
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  gap: "8px",
+                  marginTop: "8px",
+                }}
+              >
+                {you.holeCards.map((card, index) => (
+                  <CardView card={card} small key={index} />
+                ))}
+              </div>
+
+              {currentPlayer === 2 && stage !== "SHOWDOWN" && (
+                <div
+                  style={{
+                    marginTop: "7px",
+                    color: "#e9b949",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                  }}
+                >
+                  YOUR TURN
+                </div>
+              )}
+            </div>
+          )}
 
           {/* MESSAGE */}
           <div
@@ -779,109 +724,55 @@ export default function PokerTable() {
           </div>
         </div>
 
-        {/* ACTIONS */}
-        {stage !== "showdown" ? (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              gap: "12px",
-              marginTop: "22px",
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              disabled={!isYourTurn}
-              onClick={fold}
-              style={buttonStyle(
-                "#8f3d3d",
-                "#fff",
-                !isYourTurn
-              )}
-            >
-              Fold
-            </button>
-
-            <button
-              disabled={!isYourTurn}
-              onClick={check}
-              style={buttonStyle(
-                "#31534a",
-                "#fff",
-                !isYourTurn
-              )}
-            >
-              Check
-            </button>
-
-            <button
-              disabled={!isYourTurn}
-              onClick={call}
-              style={buttonStyle(
-                "#31534a",
-                "#fff",
-                !isYourTurn
-              )}
-            >
-              Call 20
-            </button>
-
-            <button
-              disabled={!isYourTurn}
-              onClick={raise}
-              style={buttonStyle(
-                "#e9b949",
-                "#111",
-                !isYourTurn
-              )}
-            >
-              Raise 50
-            </button>
-          </div>
-        ) : (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              marginTop: "22px",
-            }}
-          >
-            <button
-              onClick={() => {
-                setHandNumber((n) => n + 1);
-                newHand();
-              }}
-              style={buttonStyle("#e9b949", "#111", false)}
-            >
-              New Hand
-            </button>
-          </div>
-        )}
-
-        {/* STATUS */}
+        {/* ACTION BUTTONS */}
         <div
           style={{
-            textAlign: "center",
-            marginTop: "18px",
-            color: "#9bb5ad",
-            fontSize: "14px",
+            display: "flex",
+            justifyContent: "center",
+            gap: "12px",
+            marginTop: "22px",
+            flexWrap: "wrap",
           }}
         >
-          {stage === "showdown"
-            ? `${showdownWinner} won the hand`
-            : currentPlayer === "you"
-            ? "Your turn to act"
-            : `${
-                players.find((p) => p.id === currentPlayer)?.name
-              } is thinking...`}
+          <button
+            disabled={currentPlayer !== 2 || stage === "SHOWDOWN"}
+            onClick={() => playerAction("Fold")}
+            style={buttonStyle("#8f3d3d")}
+          >
+            Fold
+          </button>
+
+          <button
+            disabled={currentPlayer !== 2 || stage === "SHOWDOWN"}
+            onClick={() => playerAction("Check")}
+            style={buttonStyle("#31534a")}
+          >
+            Check
+          </button>
+
+          <button
+            disabled={currentPlayer !== 2 || stage === "SHOWDOWN"}
+            onClick={() => playerAction("Call")}
+            style={buttonStyle("#31534a")}
+          >
+            Call 20
+          </button>
+
+          <button
+            disabled={currentPlayer !== 2 || stage === "SHOWDOWN"}
+            onClick={() => playerAction("Raise")}
+            style={buttonStyle("#e9b949", "#111")}
+          >
+            Raise 50
+          </button>
         </div>
 
         <div
           style={{
             textAlign: "center",
-            marginTop: "12px",
-            color: "#728f87",
-            fontSize: "12px",
+            marginTop: "18px",
+            color: "#9bb5ad",
+            fontSize: "13px",
           }}
         >
           Play-money only • No deposits • No real-money gambling
@@ -891,167 +782,27 @@ export default function PokerTable() {
   );
 }
 
-/*
- * PLAYING CARD
- */
-function PlayingCard({
-  card,
-  small = false,
-}: {
-  card: Card;
-  small?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        width: small ? "48px" : "62px",
-        height: small ? "68px" : "88px",
-        background: "#fff",
-        borderRadius: "7px",
-        color: card.red ? "#c62828" : "#111",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: small ? "20px" : "25px",
-        fontWeight: "bold",
-        boxShadow: "0 5px 12px rgba(0,0,0,.35)",
-      }}
-    >
-      <div>{card.rank}</div>
-      <div>{card.suit}</div>
-    </div>
-  );
-}
+const topButtonStyle: React.CSSProperties = {
+  border: "none",
+  borderRadius: "8px",
+  padding: "12px 15px",
+  fontWeight: "bold",
+  cursor: "pointer",
+};
 
-/*
- * PLAYER BOX
- */
-function PlayerBox({
-  player,
-  position,
-  active,
-}: {
-  player: Player;
-  position: CSSProperties;
-  active: boolean;
-}) {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        ...position,
-        minWidth: "125px",
-        padding: "11px 14px",
-        borderRadius: "12px",
-        background: player.folded
-          ? "#182722"
-          : "#102d26",
-        border: active
-          ? "2px solid #e9b949"
-          : "1px solid #31534a",
-        textAlign: "center",
-        opacity: player.folded ? 0.45 : 1,
-        boxShadow: active
-          ? "0 0 25px rgba(233,185,73,.25)"
-          : "0 6px 15px rgba(0,0,0,.25)",
-      }}
-    >
-      <div
-        style={{
-          fontWeight: "bold",
-          fontSize: "17px",
-        }}
-      >
-        {player.name}
-      </div>
-
-      <div
-        style={{
-          marginTop: "4px",
-          color: "#e9b949",
-        }}
-      >
-        {player.chips} chips
-      </div>
-
-      {player.folded ? (
-        <div
-          style={{
-            marginTop: "5px",
-            color: "#c76c6c",
-            fontSize: "12px",
-          }}
-        >
-          FOLDED
-        </div>
-      ) : (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            gap: "5px",
-            marginTop: "8px",
-          }}
-        >
-          <HiddenCard />
-          <HiddenCard />
-        </div>
-      )}
-
-      {active && !player.folded && (
-        <div
-          style={{
-            marginTop: "5px",
-            color: "#e9b949",
-            fontSize: "11px",
-            fontWeight: "bold",
-          }}
-        >
-          THINKING...
-        </div>
-      )}
-    </div>
-  );
-}
-
-/*
- * CLOSED CARD
- */
-function HiddenCard() {
-  return (
-    <div
-      style={{
-        width: "35px",
-        height: "50px",
-        borderRadius: "5px",
-        border: "2px solid #d8e1ef",
-        background:
-          "repeating-linear-gradient(45deg, #162f64, #162f64 5px, #24457f 5px, #24457f 10px)",
-        boxShadow: "0 3px 7px rgba(0,0,0,.3)",
-      }}
-    />
-  );
-}
-
-/*
- * BUTTON STYLE
- */
 function buttonStyle(
   background: string,
-  color: string,
-  disabled: boolean
-): CSSProperties {
+  color: string = "#fff"
+): React.CSSProperties {
   return {
     border: "none",
     borderRadius: "8px",
-    padding: "13px 27px",
-    background: disabled ? "#283b36" : background,
-    color: disabled ? "#71817d" : color,
-    fontSize: "15px",
+    padding: "14px 28px",
+    background,
+    color,
+    fontSize: "16px",
     fontWeight: "bold",
-    cursor: disabled ? "not-allowed" : "pointer",
+    cursor: "pointer",
     minWidth: "110px",
-    opacity: disabled ? 0.7 : 1,
   };
 }
